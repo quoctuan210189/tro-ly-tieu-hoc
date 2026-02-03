@@ -1,120 +1,169 @@
 import streamlit as st
 import pandas as pd
-import time
 import random
+import os
 from io import BytesIO
 
-# --- CẤU HÌNH TRANG WEB ---
-st.set_page_config(page_title="Tool Nhận Xét Học Sinh v3.0 (Pro)", page_icon="🏫", layout="wide")
+# --- CẤU HÌNH ---
+st.set_page_config(page_title="Tool Nhận Xét Theo Mẫu Mới", page_icon="🏫", layout="wide")
+st.title("🏫 Tool Nhận Xét Học Sinh (Chuẩn Form Excel)")
 
-# --- NGÂN HÀNG NHẬN XÉT (GIỮ NGUYÊN HOẶC BỔ SUNG THÊM) ---
-NGAN_HANG_NHAN_XET = {
-    "Toán": {
-        "Tot": ["Tư duy toán học tốt, tính toán nhanh.", "Làm bài chính xác, trình bày sạch đẹp.", "Thông minh, tiếp thu bài rất nhanh."],
-        "Dat": ["Nắm được kiến thức cơ bản.", "Cần cẩn thận hơn khi tính toán.", "Làm bài đầy đủ nhưng còn chậm."],
-        "CanCoGang": ["Cần rèn luyện thêm bảng cộng trừ.", "Chưa tập trung, hay tính sai.", "Cần gia đình kèm thêm ở nhà."]
-    },
-    "Tiếng Việt": {
-        "Tot": ["Đọc to, rõ ràng, chữ viết đẹp.", "Viết câu gãy gọn, giàu cảm xúc.", "Đọc diễn cảm, hiểu nội dung bài."],
-        "Dat": ["Đọc bài trôi chảy nhưng chữ viết chưa đều.", "Cần chú ý lỗi chính tả.", "Viết câu còn đơn giản."],
-        "CanCoGang": ["Đọc còn đánh vần, chữ viết ẩu.", "Sai nhiều lỗi chính tả cơ bản.", "Cần luyện đọc nhiều hơn."]
-    }
-}
+FILE_NGAN_HANG = "data_nhan_xet.xlsx"
 
-# --- CÁC HÀM XỬ LÝ ---
-def lay_nhan_xet(diem, mon_hoc):
-    """Hàm lấy nhận xét ngẫu nhiên dựa trên điểm"""
-    # Xử lý trường hợp điểm bị để trống hoặc không phải số
+# --- HÀM 1: ĐỌC VÀ LẤY DANH SÁCH THỜI ĐIỂM ---
+def load_bank_info(filepath):
+    """
+    Hàm này chỉ đọc file để xem có những Tháng/Kỳ nào cho người dùng chọn
+    """
     try:
-        diem = float(diem)
-    except:
-        return "" # Trả về rỗng nếu không có điểm
-
-    muc_do = "CanCoGang"
-    if diem >= 9: muc_do = "Tot"
-    elif diem >= 5: muc_do = "Dat"
-    
-    # Mặc định lấy môn Toán nếu không tìm thấy môn kia
-    if mon_hoc not in NGAN_HANG_NHAN_XET: mon_hoc = "Toán"
-    
-    return random.choice(NGAN_HANG_NHAN_XET[mon_hoc][muc_do])
-
-def to_excel(df):
-    output = BytesIO()
-    writer = pd.ExcelWriter(output, engine='xlsxwriter')
-    df.to_excel(writer, index=False, sheet_name='KetQua')
-    writer.close()
-    return output.getvalue()
-
-# --- GIAO DIỆN CHÍNH ---
-st.title("🏫 Tool Nhận Xét - Phiên bản 'Cân' mọi bảng điểm")
-
-uploaded_file = st.file_uploader("1️⃣ Tải lên file Excel (.xlsx) đã Save As", type=['xlsx'])
-
-if uploaded_file:
-    try:
-        # 1. Đọc file Excel để lấy danh sách Sheet (Môn học)
-        xl = pd.ExcelFile(uploaded_file)
-        sheet_names = xl.sheet_names
+        # Đọc toàn bộ các sheet, nối lại thành 1 bảng to (nếu bạn chia nhiều sheet)
+        # Hoặc mặc định đọc sheet đầu tiên nếu bạn để chung
+        xl = pd.ExcelFile(filepath)
+        df_all = pd.DataFrame()
         
-        st.success("Đã đọc được file! Hãy chọn thông tin bên dưới:")
-        
-        # CHIA CỘT ĐỂ GIAO DIỆN GỌN HƠN
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Chọn Sheet (Môn học) - Xử lý vấn đề nhiều sheet trong hình của bạn
-            selected_sheet = st.selectbox("Chọn Sheet (Môn học):", sheet_names, index=0)
+        for sheet in xl.sheet_names:
+            df = pd.read_excel(filepath, sheet_name=sheet)
+            df_all = pd.concat([df_all, df])
             
-            # Chọn dòng tiêu đề - Mặc định là dòng 7 (index 6) như trong hình bạn gửi
-            header_row = st.number_input("Dòng chứa tiêu đề (STT, Họ tên...) là dòng số mấy?", 
-                                       min_value=1, value=7) - 1
+        # Chuẩn hóa tên cột (về chữ thường, bỏ khoảng trắng thừa)
+        df_all.columns = [str(c).strip().lower() for c in df_all.columns]
+        
+        # Kiểm tra cột bắt buộc theo ảnh bạn gửi
+        required = ['phân loại', 'mã mức độ', 'tháng', 'nội dung nhận xét']
+        if not all(col in df_all.columns for col in required):
+            missing = [c for c in required if c not in df_all.columns]
+            return None, [], f"File thiếu cột: {', '.join(missing)}"
+            
+        # Lấy danh sách các mốc thời gian (duy nhất) để hiện lên dropdown
+        # Ví dụ: 9, 10, Giữa kỳ I, Cuối kỳ I...
+        ds_thoi_diem = df_all['tháng'].astype(str).str.strip().unique().tolist()
+        ds_thoi_diem.sort() # Sắp xếp lại cho đẹp
+        
+        return df_all, ds_thoi_diem, None
+        
+    except Exception as e:
+        return None, [], str(e)
 
-        # Đọc dữ liệu thật sự dựa trên Sheet và Dòng tiêu đề đã chọn
-        df = pd.read_excel(uploaded_file, sheet_name=selected_sheet, header=header_row)
+# --- HÀM 2: XỬ LÝ NHẬN XÉT ---
+def process_data(df_hs, df_bank, selected_period):
+    """
+    df_hs: Danh sách học sinh
+    df_bank: Ngân hàng câu nhận xét (đã load ở trên)
+    selected_period: Thời điểm người dùng chọn (VD: Giữa kỳ I)
+    """
+    df_out = df_hs.copy()
+    
+    # Bước 1: Lọc Ngân hàng chỉ lấy các dòng đúng "Thời điểm" đang chọn
+    # Chuyển về string và chữ thường để so sánh cho chính xác
+    target = str(selected_period).strip().lower()
+    bank_filtered = df_bank[df_bank['tháng'].astype(str).str.strip().str.lower() == target]
+    
+    if bank_filtered.empty:
+        return df_out, [] # Không có dữ liệu của tháng này
+
+    # Bước 2: Tạo từ điển tra cứu nhanh
+    # Cấu trúc: DATA[Môn][Mã] = [Danh sách câu]
+    DATA = {}
+    for _, row in bank_filtered.iterrows():
+        mon = str(row['phân loại']).strip()   # VD: Toán
+        ma = str(row['mã mức độ']).strip()    # VD: T
+        cau = str(row['nội dung nhận xét'])   # VD: Em học tốt...
+        
+        if mon not in DATA: DATA[mon] = {}
+        if ma not in DATA[mon]: DATA[mon][ma] = []
+        DATA[mon][ma].append(cau)
+
+    # Bước 3: Quét qua file Danh sách học sinh để điền
+    processed_cols = []
+    
+    # Duyệt từng cột trong file học sinh
+    for col in df_out.columns:
+        col_name = str(col).strip() # Tên cột (VD: Toán, Tiếng Việt)
+        
+        # Nếu Tên cột này CÓ xuất hiện trong cột "Phân loại" của file Excel
+        if col_name in DATA:
+            processed_cols.append(col_name)
+            
+            # Hàm con: Lấy câu nhận xét cho 1 học sinh
+            def get_comment(student_code):
+                student_code = str(student_code).strip() # VD: T, H, C
+                
+                # Nếu mã của HS có trong ngân hàng đề
+                if student_code in DATA[col_name]:
+                    return random.choice(DATA[col_name][student_code])
+                else:
+                    return "" # Không tìm thấy mã hoặc mã lạ
+            
+            # Tạo cột mới: "Nhận xét [Tên môn]"
+            df_out[f"Nhận xét {col_name}"] = df_out[col].apply(get_comment)
+            
+    return df_out, processed_cols
+
+# --- GIAO DIỆN STREAMLIT ---
+
+# 1. KIỂM TRA FILE NGÂN HÀNG
+if not os.path.exists(FILE_NGAN_HANG):
+    st.warning(f"⚠️ Chưa thấy file '{FILE_NGAN_HANG}'. Vui lòng upload file Excel mẫu (4 cột: Phân loại | Mã mức độ | Tháng | Nội dung nhận xét)")
+    uploaded_bank = st.file_uploader("Upload Ngân hàng (.xlsx)", type=['xlsx'])
+    if uploaded_bank:
+        # Lưu tạm file để đọc
+        with open(FILE_NGAN_HANG, "wb") as f:
+            f.write(uploaded_bank.getbuffer())
+        st.experimental_rerun()
+else:
+    # 2. ĐỌC DỮ LIỆU & HIỆN BỘ CHỌN THỜI ĐIỂM
+    df_bank_all, list_periods, err = load_bank_info(FILE_NGAN_HANG)
+    
+    if err:
+        st.error(f"Lỗi đọc file Ngân hàng: {err}")
+    else:
+        st.success(f"✅ Đã kết nối Ngân hàng dữ liệu.")
         
         st.markdown("---")
-        st.write("▼ **Kiểm tra xem máy tính đọc đúng cột chưa:**")
-        st.dataframe(df.head(3)) # Hiện 3 dòng đầu để check
+        col1, col2 = st.columns([1, 2])
         
-        # 2. KHỚP CỘT DỮ LIỆU (QUAN TRỌNG NHẤT)
-        st.subheader("2️⃣ Khớp thông tin cột")
-        st.info("Vì file của bạn cột Họ và Tên bị tách rời, và chưa rõ cột Điểm ở đâu, hãy chỉ cho máy tính biết:")
-        
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            # Tìm cột có chữ "Họ" hoặc chọn cột C (thường là cột thứ 2, 3)
-            col_ho = st.selectbox("Cột 'Họ đệm' là cột nào?", df.columns, index=1) 
-        with c2:
-            # Tìm cột có chữ "Tên"
-            col_ten = st.selectbox("Cột 'Tên' là cột nào?", df.columns, index=2)
-        with c3:
-            # Cho người dùng chọn cột điểm.
-            # Lưu ý: Trong hình bạn gửi tôi không thấy cột điểm, bạn hãy chọn đúng cột chứa điểm số nhé.
-            col_diem = st.selectbox("Cột 'Điểm số' để xét là cột nào?", df.columns)
+        with col1:
+            st.header("1. Cấu hình")
+            # Dropdown này tự động lấy từ cột 'Tháng' trong file Excel của bạn
+            selected_period = st.selectbox("Chọn Thời điểm / Tháng:", list_periods)
+            st.info(f"Đang dùng bộ nhận xét: **{selected_period}**")
 
-        # 3. NÚT XỬ LÝ
-        if st.button("🚀 Tạo nhận xét ngay"):
-            # Ghép họ và tên lại cho đẹp
-            df['Họ và tên đầy đủ'] = df[col_ho].astype(str) + " " + df[col_ten].astype(str)
-            
-            # Tạo nhận xét
-            # Tự động đoán môn học dựa trên tên Sheet, nếu không thì mặc định là Toán
-            mon_hien_tai = "Toán"
-            if "tieng_viet" in selected_sheet.lower(): mon_hien_tai = "Tiếng Việt"
-            
-            df['Nhận xét tự động'] = df[col_diem].apply(lambda x: lay_nhan_xet(x, mon_hien_tai))
-            
-            # Hiển thị kết quả
-            st.success("Xong! Kéo xuống để xem kết quả.")
-            st.dataframe(df[[col_ho, col_ten, col_diem, 'Nhận xét tự động']])
-            
-            # Tải về
-            excel_data = to_excel(df)
-            st.download_button(label="📥 Tải file kết quả về máy",
-                               data=excel_data,
-                               file_name=f'Nhan_xet_{selected_sheet}.xlsx')
-            
-    except Exception as e:
-        st.error(f"Vẫn có lỗi nhỏ: {e}")
-        st.warning("Gợi ý: Hãy chắc chắn bạn đã Save As file cũ sang đuôi .xlsx (Excel Workbook) nhé!")
+        with col2:
+            st.header("2. Danh sách Học sinh")
+            uploaded_hs = st.file_uploader("Tải file điểm/mức đạt (Excel)", type=['xlsx'])
+
+        # 3. XỬ LÝ
+        if uploaded_hs:
+            st.markdown("---")
+            if st.button("🚀 Tạo Nhận Xét Ngay", type="primary"):
+                try:
+                    df_hs = pd.read_excel(uploaded_hs)
+                    
+                    with st.spinner("Đang lọc dữ liệu và viết lời phê..."):
+                        df_result, cols_done = process_data(df_hs, df_bank_all, selected_period)
+                    
+                    if cols_done:
+                        st.balloons()
+                        st.success(f"Đã xong! Đã viết nhận xét cho các môn: {', '.join(cols_done)}")
+                        
+                        # Hiện kết quả
+                        st.dataframe(df_result.head())
+                        
+                        # Tải về
+                        output = BytesIO()
+                        writer = pd.ExcelWriter(output, engine='xlsxwriter')
+                        df_result.to_excel(writer, index=False)
+                        writer.close()
+                        
+                        file_name_download = f"KetQua_{str(selected_period).replace(' ', '_')}.xlsx"
+                        st.download_button(
+                            label="📥 Tải file kết quả về máy",
+                            data=output.getvalue(),
+                            file_name=file_name_download,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    else:
+                        st.warning("Không tìm thấy môn học nào trùng khớp! Hãy kiểm tra lại tên cột trong file Danh sách có giống cột 'Phân loại' không.")
+                        
+                except Exception as e:
+                    st.error(f"Có lỗi xảy ra: {e}")
