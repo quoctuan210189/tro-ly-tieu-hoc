@@ -1,153 +1,120 @@
 import streamlit as st
 import pandas as pd
 import time
-import random # <--- Thư viện mới để chọn ngẫu nhiên
+import random
 from io import BytesIO
 
 # --- CẤU HÌNH TRANG WEB ---
-st.set_page_config(
-    page_title="Tool Nhận Xét Học Sinh Tiểu Học v2.0",
-    page_icon="🏫",
-    layout="wide"
-)
+st.set_page_config(page_title="Tool Nhận Xét Học Sinh v3.0 (Pro)", page_icon="🏫", layout="wide")
 
-# --- PHẦN 1: NGÂN HÀNG NHẬN XÉT (ĐÂY LÀ TÀI SẢN QUÝ GIÁ NHẤT CỦA BẠN) ---
-# Bạn hãy thêm các câu hay ho vào trong dấu ngoặc [] nhé.
-# Cấu trúc: "Môn": { "Mức độ": [Danh sách các câu] }
-
+# --- NGÂN HÀNG NHẬN XÉT (GIỮ NGUYÊN HOẶC BỔ SUNG THÊM) ---
 NGAN_HANG_NHAN_XET = {
     "Toán": {
-        "Tot": [
-            "Em có tư duy toán học rất tốt, tính toán nhanh và chính xác.",
-            "Hoàn thành xuất sắc các bài tập, giải toán thông minh, sáng tạo.",
-            "Nắm vững kiến thức, trình bày bài sạch đẹp, khoa học.",
-            "Rất thông minh, tiếp thu bài nhanh, vận dụng tốt vào bài tập nâng cao.",
-            "Có năng khiếu về môn Toán, tính toán cẩn thận và chính xác."
-        ],
-        "Dat": [
-            "Em nắm được kiến thức cơ bản, làm bài đầy đủ.",
-            "Cần cẩn thận hơn trong việc đặt tính và tính toán.",
-            "Tiếp thu bài tốt nhưng đôi khi còn làm ẩu, cần soát lại bài kỹ hơn.",
-            "Hiểu bài, làm bài đúng nhưng tốc độ còn hơi chậm.",
-            "Có cố gắng trong giờ học, hoàn thành được các bài tập cơ bản."
-        ],
-        "CanCoGang": [
-            "Cần rèn luyện thêm kỹ năng tính toán, em còn hay tính sai.",
-            "Chưa thuộc hết bảng cửu chương/công thức, cần ôn tập thêm ở nhà.",
-            "Cần tập trung nghe giảng hơn để hiểu bài, làm bài còn chậm.",
-            "Gia đình cần phối hợp kèm thêm cho em các phép tính cơ bản."
-        ]
+        "Tot": ["Tư duy toán học tốt, tính toán nhanh.", "Làm bài chính xác, trình bày sạch đẹp.", "Thông minh, tiếp thu bài rất nhanh."],
+        "Dat": ["Nắm được kiến thức cơ bản.", "Cần cẩn thận hơn khi tính toán.", "Làm bài đầy đủ nhưng còn chậm."],
+        "CanCoGang": ["Cần rèn luyện thêm bảng cộng trừ.", "Chưa tập trung, hay tính sai.", "Cần gia đình kèm thêm ở nhà."]
     },
     "Tiếng Việt": {
-        "Tot": [
-            "Chữ viết đẹp, nắn nót. Đọc to, rõ ràng, diễn cảm.",
-            "Vốn từ phong phú, viết câu gãy gọn, giàu hình ảnh.",
-            "Đọc hiểu tốt, trả lời câu hỏi chính xác và tự tin.",
-            "Chữ viết rất đẹp, trình bày sạch sẽ. Kỹ năng viết văn tốt.",
-            "Hoàn thành xuất sắc bài học, rất chăm chỉ phát biểu."
-        ],
-        "Dat": [
-            "Chữ viết rõ ràng nhưng chưa đều nét. Đọc bài trôi chảy.",
-            "Cần chú ý lỗi chính tả khi viết, em viết còn sai dấu thanh.",
-            "Đọc bài to nhưng cần ngắt nghỉ đúng dấu câu.",
-            "Hoàn thành bài viết, tuy nhiên câu văn còn lủng củng.",
-            "Có tiến bộ trong việc rèn chữ, cần cố gắng duy trì."
-        ],
-        "CanCoGang": [
-            "Chữ viết còn ẩu, sai nhiều lỗi chính tả.",
-            "Đọc bài còn nhỏ, đánh vần chậm, cần luyện đọc thêm ở nhà.",
-            "Cần rèn luyện thêm kỹ năng viết câu cho trọn vẹn ý nghĩa.",
-            "Gia đình cần đôn đốc em luyện viết và đọc bài mỗi tối."
-        ]
+        "Tot": ["Đọc to, rõ ràng, chữ viết đẹp.", "Viết câu gãy gọn, giàu cảm xúc.", "Đọc diễn cảm, hiểu nội dung bài."],
+        "Dat": ["Đọc bài trôi chảy nhưng chữ viết chưa đều.", "Cần chú ý lỗi chính tả.", "Viết câu còn đơn giản."],
+        "CanCoGang": ["Đọc còn đánh vần, chữ viết ẩu.", "Sai nhiều lỗi chính tả cơ bản.", "Cần luyện đọc nhiều hơn."]
     }
 }
 
-# --- PHẦN 2: CÁC HÀM XỬ LÝ LOGIC ---
+# --- CÁC HÀM XỬ LÝ ---
+def lay_nhan_xet(diem, mon_hoc):
+    """Hàm lấy nhận xét ngẫu nhiên dựa trên điểm"""
+    # Xử lý trường hợp điểm bị để trống hoặc không phải số
+    try:
+        diem = float(diem)
+    except:
+        return "" # Trả về rỗng nếu không có điểm
 
-def lay_nhan_xet_ngau_nhien(diem_so, mon_hoc):
-    """
-    Hàm này sẽ chọn ngẫu nhiên một câu trong ngân hàng dựa trên điểm số.
-    """
-    # 1. Xác định mức độ dựa trên điểm số (Logic của TT27)
-    muc_do = ""
-    if diem_so >= 9:
-        muc_do = "Tot"
-    elif diem_so >= 5:
-        muc_do = "Dat"
-    else:
-        muc_do = "CanCoGang"
+    muc_do = "CanCoGang"
+    if diem >= 9: muc_do = "Tot"
+    elif diem >= 5: muc_do = "Dat"
     
-    # 2. Lấy danh sách câu tương ứng
-    # Nếu môn học chưa có trong ngân hàng thì dùng mặc định
-    if mon_hoc not in NGAN_HANG_NHAN_XET:
-        return f"Đã hoàn thành môn {mon_hoc} với điểm số {diem_so}."
+    # Mặc định lấy môn Toán nếu không tìm thấy môn kia
+    if mon_hoc not in NGAN_HANG_NHAN_XET: mon_hoc = "Toán"
     
-    danh_sach_cau = NGAN_HANG_NHAN_XET[mon_hoc][muc_do]
-    
-    # 3. Chọn ngẫu nhiên (Random)
-    cau_chon = random.choice(danh_sach_cau)
-    
-    return cau_chon
+    return random.choice(NGAN_HANG_NHAN_XET[mon_hoc][muc_do])
 
-def convert_df_to_excel(df):
+def to_excel(df):
     output = BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
     df.to_excel(writer, index=False, sheet_name='KetQua')
     writer.close()
-    processed_data = output.getvalue()
-    return processed_data
+    return output.getvalue()
 
-# --- PHẦN 3: GIAO DIỆN NGƯỜI DÙNG (UI) ---
+# --- GIAO DIỆN CHÍNH ---
+st.title("🏫 Tool Nhận Xét - Phiên bản 'Cân' mọi bảng điểm")
 
-st.title("🏫 Trợ Lý Nhận Xét Học Sinh v2.0")
-st.markdown("### ✨ Tính năng mới: Tự động trộn câu nhận xét ngẫu nhiên")
+uploaded_file = st.file_uploader("1️⃣ Tải lên file Excel (.xlsx) đã Save As", type=['xlsx'])
 
-# Sidebar
-with st.sidebar:
-    st.header("⚙️ Cấu hình")
-    # Tự động lấy danh sách môn từ Ngân hàng dữ liệu
-    ds_mon = list(NGAN_HANG_NHAN_XET.keys())
-    mon_hoc_chon = st.selectbox("Chọn môn học:", ds_mon)
-    
-    st.markdown("---")
-    st.info("💡 **Mẹo:** Mỗi lần bấm nút 'Tạo', kết quả sẽ khác nhau một chút nhờ thuật toán ngẫu nhiên.")
-
-# Main area
-uploaded_file = st.file_uploader("📂 Tải lên file Excel (Cần cột 'Họ và tên' & 'Điểm số')", type=['xlsx', 'xls'])
-
-if uploaded_file is not None:
+if uploaded_file:
     try:
-        df = pd.read_excel(uploaded_file)
+        # 1. Đọc file Excel để lấy danh sách Sheet (Môn học)
+        xl = pd.ExcelFile(uploaded_file)
+        sheet_names = xl.sheet_names
         
-        if 'Điểm số' in df.columns:
-            st.success(f"Đã tải xong danh sách {len(df)} học sinh.")
+        st.success("Đã đọc được file! Hãy chọn thông tin bên dưới:")
+        
+        # CHIA CỘT ĐỂ GIAO DIỆN GỌN HƠN
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Chọn Sheet (Môn học) - Xử lý vấn đề nhiều sheet trong hình của bạn
+            selected_sheet = st.selectbox("Chọn Sheet (Môn học):", sheet_names, index=0)
             
-            # Hiển thị trước 3 dòng để check
-            with st.expander("Xem dữ liệu đầu vào"):
-                st.dataframe(df.head(3))
+            # Chọn dòng tiêu đề - Mặc định là dòng 7 (index 6) như trong hình bạn gửi
+            header_row = st.number_input("Dòng chứa tiêu đề (STT, Họ tên...) là dòng số mấy?", 
+                                       min_value=1, value=7) - 1
 
-            if st.button("✨ Tạo nhận xét ngẫu nhiên ngay"):
-                with st.spinner('Đang suy nghĩ lời phê cho từng em...'):
-                    time.sleep(1) # Tạo cảm giác đang xử lý
-                    
-                    # Áp dụng hàm ngẫu nhiên
-                    df['Nhận xét giáo viên'] = df['Điểm số'].apply(lambda x: lay_nhan_xet_ngau_nhien(x, mon_hoc_chon))
-                
-                st.balloons() # Hiệu ứng bóng bay chúc mừng
-                
-                st.subheader("✅ Kết quả (Đã trộn nội dung):")
-                st.dataframe(df)
-                
-                # Nút tải về
-                excel_data = convert_df_to_excel(df)
-                st.download_button(
-                    label="📥 Tải file kết quả về máy",
-                    data=excel_data,
-                    file_name=f'Nhan_xet_{mon_hoc_chon}.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                )
-        else:
-            st.error("⚠️ Lỗi: File Excel thiếu cột 'Điểm số'.")
+        # Đọc dữ liệu thật sự dựa trên Sheet và Dòng tiêu đề đã chọn
+        df = pd.read_excel(uploaded_file, sheet_name=selected_sheet, header=header_row)
+        
+        st.markdown("---")
+        st.write("▼ **Kiểm tra xem máy tính đọc đúng cột chưa:**")
+        st.dataframe(df.head(3)) # Hiện 3 dòng đầu để check
+        
+        # 2. KHỚP CỘT DỮ LIỆU (QUAN TRỌNG NHẤT)
+        st.subheader("2️⃣ Khớp thông tin cột")
+        st.info("Vì file của bạn cột Họ và Tên bị tách rời, và chưa rõ cột Điểm ở đâu, hãy chỉ cho máy tính biết:")
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            # Tìm cột có chữ "Họ" hoặc chọn cột C (thường là cột thứ 2, 3)
+            col_ho = st.selectbox("Cột 'Họ đệm' là cột nào?", df.columns, index=1) 
+        with c2:
+            # Tìm cột có chữ "Tên"
+            col_ten = st.selectbox("Cột 'Tên' là cột nào?", df.columns, index=2)
+        with c3:
+            # Cho người dùng chọn cột điểm.
+            # Lưu ý: Trong hình bạn gửi tôi không thấy cột điểm, bạn hãy chọn đúng cột chứa điểm số nhé.
+            col_diem = st.selectbox("Cột 'Điểm số' để xét là cột nào?", df.columns)
+
+        # 3. NÚT XỬ LÝ
+        if st.button("🚀 Tạo nhận xét ngay"):
+            # Ghép họ và tên lại cho đẹp
+            df['Họ và tên đầy đủ'] = df[col_ho].astype(str) + " " + df[col_ten].astype(str)
+            
+            # Tạo nhận xét
+            # Tự động đoán môn học dựa trên tên Sheet, nếu không thì mặc định là Toán
+            mon_hien_tai = "Toán"
+            if "tieng_viet" in selected_sheet.lower(): mon_hien_tai = "Tiếng Việt"
+            
+            df['Nhận xét tự động'] = df[col_diem].apply(lambda x: lay_nhan_xet(x, mon_hien_tai))
+            
+            # Hiển thị kết quả
+            st.success("Xong! Kéo xuống để xem kết quả.")
+            st.dataframe(df[[col_ho, col_ten, col_diem, 'Nhận xét tự động']])
+            
+            # Tải về
+            excel_data = to_excel(df)
+            st.download_button(label="📥 Tải file kết quả về máy",
+                               data=excel_data,
+                               file_name=f'Nhan_xet_{selected_sheet}.xlsx')
             
     except Exception as e:
-        st.error(f"Có lỗi: {e}")
+        st.error(f"Vẫn có lỗi nhỏ: {e}")
+        st.warning("Gợi ý: Hãy chắc chắn bạn đã Save As file cũ sang đuôi .xlsx (Excel Workbook) nhé!")
